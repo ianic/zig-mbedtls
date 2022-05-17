@@ -17,6 +17,5 @@ pub fn main() !void {
 
         var offset = @intCast(usize, ret);
         std.debug.print("{s}\n", .{buf[0..offset]});
-        //std.debug.print("{d} {d}\n", .{ret, offset});
     }
 }

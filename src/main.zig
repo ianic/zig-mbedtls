@@ -1,6 +1,6 @@
 const std = @import("std");
+
 const c = @cImport({
-    @cInclude("lib/zig_ssl_config.h");
     @cInclude("mbedtls/entropy.h");
     @cInclude("mbedtls/ctr_drbg.h");
     @cInclude("mbedtls/net_sockets.h");
@@ -31,7 +31,7 @@ pub const mbedTLS = struct {
     pub fn init(allocator: Allocator) !mbedTLS {
         var net_ctx = try allocator.create(c.mbedtls_net_context);
         var entropy_ctx = try allocator.create(c.mbedtls_entropy_context);
-        var ssl_config = c.zmbedtls_ssl_config_alloc();
+        var ssl_config = try allocator.create(c.mbedtls_ssl_config);
         var ssl_ctx = try allocator.create(c.mbedtls_ssl_context);
         var drbg_ctx = try allocator.create(c.mbedtls_ctr_drbg_context);
         var ca_chain = try allocator.create(c.mbedtls_x509_crt);
@@ -39,7 +39,7 @@ pub const mbedTLS = struct {
         c.mbedtls_net_init(net_ctx);
         c.mbedtls_entropy_init(entropy_ctx);
         c.mbedtls_ssl_init(ssl_ctx);
-        c.zmbedtls_ssl_config_init(ssl_config);
+        c.mbedtls_ssl_config_init(ssl_config);
         c.mbedtls_ctr_drbg_init(drbg_ctx);
         c.mbedtls_x509_crt_init(ca_chain);
 
@@ -47,7 +47,7 @@ pub const mbedTLS = struct {
             .server_fd = net_ctx,
             .entropy = entropy_ctx,
             .ssl = ssl_ctx,
-            .ssl_conf = @ptrCast(*c.mbedtls_ssl_config, @alignCast(@alignOf(*c.mbedtls_ssl_config), ssl_config)),
+            .ssl_conf = ssl_config,
             .drbg = drbg_ctx,
             .ca_chain = ca_chain,
             .entropyfn = c.mbedtls_entropy_func,
@@ -62,6 +62,24 @@ pub const mbedTLS = struct {
         var mbed = try init(allocator);
 
         try mbed.netConnect(host, port, mbedTLS.Proto.TCP);
+
+        try mbed.sslConfDefaults(.IS_CLIENT, .TCP, .DEFAULT);
+        mbed.sslConfAuthmode(.NONE);
+        mbed.sslConfRng(null); //use default
+        mbed.setConfDebug(null); // use default
+        mbed.sslConfCaChain(null); // use parsed CA file from earlier
+
+        try mbed.sslSetup(); // use parsed CA file from earlier
+        try mbed.setHostname("hello");
+        mbed.sslSetBIO();
+        try mbed.sslHandshake();
+
+        return mbed;
+    }
+
+    pub fn initClientFd(allocator: Allocator, fd: c_int) !mbedTLS {
+        var mbed = try init(allocator);
+        try mbed.setFd(fd);
 
         try mbed.sslConfDefaults(.IS_CLIENT, .TCP, .DEFAULT);
         mbed.sslConfAuthmode(.NONE);
@@ -197,8 +215,8 @@ pub const mbedTLS = struct {
 
     pub fn deinit(self: *mbedTLS) void {
         c.mbedtls_net_close(self.server_fd);
-        c.zmbedtls_ssl_config_free(self.ssl_conf);
 
+        self.allocator.destroy(self.ssl_conf);
         self.allocator.destroy(self.server_fd);
         self.allocator.destroy(self.entropy);
         self.allocator.destroy(self.ssl);
