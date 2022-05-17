@@ -1,6 +1,8 @@
 const zbuild = @import("std").build;
 
 pub fn add_deps(b: *zbuild.LibExeObjStep) void {
+    //b.addIncludeDir("/Users/ianic/code/zig/tls-try/.gyro/zig-mbedtls-mattnite-github.com-a4f5357c/pkg/mbedtls/include");
+    //b.addLibPath("/Users/ianic/code/zig/zig-mbedtls/zig-out/lib");
     b.addIncludeDir("/opt/homebrew/include");
     b.addIncludeDir(".");
     b.addCSourceFile("lib/zig_ssl_config.c", &[_][]const u8{"-std=c99"});
@@ -36,4 +38,12 @@ pub fn build(b: *zbuild.Builder) void {
 
     const examples = b.step("examples", "Build examples");
     examples.dependOn(&example.step);
+
+
+    const https_get = b.addExecutable("https_get", "examples/https_get.zig");
+    add_deps(https_get);
+    https_get.setBuildMode(mode);
+    https_get.addPackagePath("mbedtls", "mbedtls.zig");
+    https_get.install();
+
 }
