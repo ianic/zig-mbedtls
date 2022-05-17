@@ -1,4 +1,3 @@
-//const m = @import("bits.zig");
 const std = @import("std");
 const c = @cImport({
     @cInclude("lib/zig_ssl_config.h");
