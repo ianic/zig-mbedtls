@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const c = @cImport({
     @cInclude("mbedtls/entropy.h");
@@ -9,14 +10,6 @@ const c = @cImport({
     @cInclude("mbedtls/debug.h");
     @cInclude("mbedtls/error.h");
 });
-
-const os = std.os;
-const io = std.io;
-const Allocator = std.mem.Allocator;
-const expectEqual = std.testing.expectEqual;
-const expectError = std.testing.expectError;
-const expect = std.testing.expect;
-const assert = std.debug.assert;
 
 pub const mbedTLS = struct {
     server_fd: *c.mbedtls_net_context,
@@ -48,12 +41,14 @@ pub const mbedTLS = struct {
             .entropy = entropy_ctx,
             .ssl = ssl_ctx,
             .ssl_conf = ssl_config,
+            //.ssl_conf = @ptrCast(*c.mbedtls_ssl_config, @alignCast(@alignOf(*c.mbedtls_ssl_config), ssl_config)),
             .drbg = drbg_ctx,
             .ca_chain = ca_chain,
             .entropyfn = c.mbedtls_entropy_func,
             .allocator = allocator,
         };
         try mbed.ctrDrbgSeed(null);
+        //try mbed.x509CrtParseFile("/etc/ssl/cert.pem");
 
         return mbed;
     }
@@ -149,7 +144,7 @@ pub const mbedTLS = struct {
     const debug_fn = fn (?*anyopaque, c_int, [*c]const u8, c_int, [*c]const u8) callconv(.C) void;
 
     pub fn setConfDebug(self: *mbedTLS, debug: ?debug_fn) void {
-        var stdout = io.getStdOut().handle;
+        var stdout = std.io.getStdOut().handle;
 
         if (debug) |dbg| {
             c.mbedtls_ssl_conf_dbg(self.ssl_conf, dbg, &stdout);
@@ -230,51 +225,56 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const PageAllocator = std.heap.page_allocator;
 var arena = ArenaAllocator.init(PageAllocator);
 
+const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
+const expect = std.testing.expect;
+const assert = std.debug.assert;
+
 test "initialize mbedtls" {
-    var mbed = try mbedTLS.init(&arena.allocator);
+    var mbed = try mbedTLS.init(arena.allocator());
     defer mbed.deinit();
 
-    expectEqual(@as(c_int, -1), mbed.server_fd.fd);
+    try expectEqual(@as(c_int, -1), mbed.server_fd.fd);
 }
 
 test "load certificate file" {
     const cafile = "cacert.pem";
-    var mbed = try mbedTLS.init(&arena.allocator);
+    var mbed = try mbedTLS.init(arena.allocator());
     defer mbed.deinit();
 
-    expectEqual(@as(c_int, 0), mbed.ca_chain.*.version);
+    try expectEqual(@as(c_int, 0), mbed.ca_chain.*.version);
     try mbed.x509CrtParseFile(cafile);
-    expectEqual(@as(c_int, 3), mbed.ca_chain.*.version);
+    try expectEqual(@as(c_int, 3), mbed.ca_chain.*.version);
 }
 
 test "run seed function" {
-    var mbed = try mbedTLS.init(&arena.allocator);
+    var mbed = try mbedTLS.init(arena.allocator());
     defer mbed.deinit();
 
-    expectEqual(mbed.drbg.entropy_len, 0);
+    try expectEqual(mbed.drbg.private_entropy_len, 48);
 
     // Check that it works with additional data and without
     try mbed.ctrDrbgSeed(null);
     try mbed.ctrDrbgSeed("SampleDevice");
-    expectEqual(mbed.drbg.entropy_len, 48);
+    try expectEqual(mbed.drbg.*.private_entropy_len, 48);
 }
 
 test "connect to host" {
     const cafile = "cacert.pem";
-    var mbed = try mbedTLS.init(&arena.allocator);
+    var mbed = try mbedTLS.init(arena.allocator());
     defer mbed.deinit();
 
     try mbed.x509CrtParseFile(cafile);
     try mbed.ctrDrbgSeed("SampleDevice");
-    expectError(error.UnknownHost, mbed.netConnect("google.zom", "443", mbedTLS.Proto.TCP));
-    expectEqual(mbed.server_fd.fd, -1);
+    try expectError(Error.NetUnknownHost, mbed.netConnect("google.zom", "443", mbedTLS.Proto.TCP));
+    try expectEqual(mbed.server_fd.fd, -1);
 
     try mbed.netConnect("google.com", "443", mbedTLS.Proto.TCP);
-    expect(mbed.server_fd.fd > -1);
+    try expect(mbed.server_fd.fd > -1);
 }
 
 test "set hostname" {
-    var mbed = try mbedTLS.init(&arena.allocator);
+    var mbed = try mbedTLS.init(arena.allocator());
     defer mbed.deinit();
 
     const excessive =
@@ -283,65 +283,74 @@ test "set hostname" {
         \\ V8haOdljSwnmptEWSwFWe2FVsj0s8orr5JGNi91kLrTTpPzaXSoClrGTuireAlLaGExuer1Ue7LAAypC2FWV"
     ;
 
-    expectError(error.BadInputData, mbed.setHostname(excessive));
+    try expectError(Error.SslBadInputData, mbed.setHostname(excessive));
 }
 
 test "can write a request" {
-    const cafile = "cacert.pem";
-    var mbed = try mbedTLS.init(&arena.allocator);
+    //const cafile = "cacert.pem";
+    var mbed = try mbedTLS.init(arena.allocator());
     defer mbed.deinit();
 
-    try mbed.x509CrtParseFile(cafile);
-    try mbed.ctrDrbgSeed("SampleDevice");
-    try mbed.netConnect("google.com", "443", mbedTLS.Proto.TCP);
+    //try mbed.x509CrtParseFile(cafile);
+    //try mbed.ctrDrbgSeed("SampleDevice");
+    try mbed.netConnect("www.google.com", "443", mbedTLS.Proto.TCP);
+
+     try mbed.sslConfDefaults(.IS_CLIENT, .TCP, .DEFAULT);
+    mbed.sslConfAuthmode(.NONE);
+    mbed.sslConfRng(null); //use default
+
+    try mbed.sslSetup(); // use parsed CA file from earlier
     try mbed.setHostname("zig-mbedtls");
-    const req = "GET / HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n";
+    mbed.sslSetBIO();
+
+    const req = "GET / HTTP/1.1\r\nHost: www.google.com\r\nConnection: close\r\n\r\n";
 
     const ret = try mbed.sslWrite(req);
-    expect(ret > 0);
+    try expect(ret > 0);
 }
 
-// This test is very sketchy and will break on any ssl_conf struct changes in
-// mbedTLS. Disable if too much hassle too maintain
-test "set ssl defaults and presets" {
-    const Preset = mbedTLS.SSLPreset;
-    const Endpoint = mbedTLS.SSLEndpoint;
-    const Proto = mbedTLS.Proto;
-    var mbed = try mbedTLS.init(&arena.allocator);
-    defer mbed.deinit();
+// // This test is very sketchy and will break on any ssl_conf struct changes in
+// // mbedTLS. Disable if too much hassle too maintain
+// test "set ssl defaults and presets" {
+//     const Preset = mbedTLS.SSLPreset;
+//     const Endpoint = mbedTLS.SSLEndpoint;
+//     const Proto = mbedTLS.Proto;
+//     var mbed = try mbedTLS.init(arena.allocator());
+//     defer mbed.deinit();
 
-    // We cant access these by field since the struct is opaque
-    // These entries in the struct is on memory address 0x170 after base
-    // If 0x00500000 is the base address, then:
-    // 0x100500170: 3 == unsigned char max_major_ver;
-    // 0x100500171: 3 == unsigned char max_minor_ver;
-    // 0x100500172: 3 == unsigned char min_major_ver;
-    // 0x100500173: 1 == unsigned char min_minor_ver;
-    const memaddr: usize = @ptrToInt(mbed.ssl_conf);
-    const max_major_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x170);
-    const max_minor_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x171);
-    const min_major_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x172);
-    const min_minor_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x173);
+//     // We cant access these by field since the struct is opaque
+//     // These entries in the struct is on memory address 0x170 after base
+//     // If 0x00500000 is the base address, then:
+//     // 0x100500170: 3 == unsigned char max_major_ver;
+//     // 0x100500171: 3 == unsigned char max_minor_ver;
+//     // 0x100500172: 3 == unsigned char min_major_ver;
+//     // 0x100500173: 1 == unsigned char min_minor_ver;
+//     const memaddr: usize = @ptrToInt(mbed.ssl_conf);
+//     const max_major_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x170);
+//     const max_minor_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x171);
+//     const min_major_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x172);
+//     const min_minor_ver: *u2 = @intToPtr(*align(1) u2, memaddr + 0x173);
 
-    expect(0 == max_major_ver.*);
-    expect(0 == max_minor_ver.*);
-    expect(0 == min_major_ver.*);
-    expect(0 == min_minor_ver.*);
-    try mbed.sslConfDefaults(Endpoint.IS_CLIENT, Proto.TCP, Preset.DEFAULT);
-    expect(3 == max_major_ver.*);
-    expect(3 == max_minor_ver.*);
-    expect(3 == min_major_ver.*);
-    expect(1 == min_minor_ver.*);
-}
+//     try expect(0 == max_major_ver.*);
+//     try expect(0 == max_minor_ver.*);
+//     try expect(0 == min_major_ver.*);
+//     try expect(0 == min_minor_ver.*);
+//     try mbed.sslConfDefaults(Endpoint.IS_CLIENT, Proto.TCP, Preset.DEFAULT);
+//     try expectEqual(@intCast(u2, 3), mbed.ssl_conf.max_major_ver);
+//     try expect(3 == max_major_ver.*);
+//     try expect(3 == max_minor_ver.*);
+//     try expect(3 == min_major_ver.*);
+//     try expect(1 == min_minor_ver.*);
+// }
 
-test "can do mbedtls_ssl_config workaround" {
-    var a = c.zmbedtls_ssl_config_alloc();
-    c.zmbedtls_ssl_config_init(a);
-    var b = c.zmbedtls_ssl_config_defaults(a, 0, 0, 0);
-    expectEqual(@as(c_int, 0), b);
+// test "can do mbedtls_ssl_config workaround" {
+//     var a = c.zmbedtls_ssl_config_alloc();
+//     c.zmbedtls_ssl_config_init(a);
+//     var b = c.zmbedtls_ssl_config_defaults(a, 0, 0, 0);
+//     try expectEqual(@as(c_int, 0), b);
 
-    c.zmbedtls_ssl_config_free(a);
-}
+//     c.zmbedtls_ssl_config_free(a);
+// }
 
 pub const Error = error{
     Unknown,
