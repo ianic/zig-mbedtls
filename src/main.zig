@@ -49,49 +49,63 @@ pub const mbedTLS = struct {
         };
         try mbed.ctrDrbgSeed(null);
         //try mbed.x509CrtParseFile("/etc/ssl/cert.pem");
-
+        // on ubuntu: etc/ssl/certs/ca-certificates.crt
+        // on macOS: "/etc/ssl/cert.pem"
         return mbed;
     }
 
-    pub fn initClient(allocator: Allocator, host: [*]const u8, port: [*]const u8) !mbedTLS {
-        var mbed = try init(allocator);
+    pub fn client(mbed: *mbedTLS) !void {
+        try mbed.sslConfDefaults(.IS_CLIENT, .TCP, .DEFAULT);
+        mbed.sslConfRng(null);
+    }
 
+    pub fn insecure(mbed: *mbedTLS) !void {
+        // no certificate checking
+        mbed.sslConfAuthmode(.NONE);
+        //mbed.sslConfCaChain(null);
+        try mbed.sslSetup();
+        //try mbed.setHostname("hello");
+    }
+
+    pub fn systemCA(mbed: *mbedTLS) !void {
+        const locations: [2][]const u8 = .{
+            "/etc/ssl/cert.pem", // macOS
+            "etc/ssl/certs/ca-certificates.crt", // ubuntu
+        };
+        for (locations) |location| {
+            mbed.x509CrtParseFile(location) catch |err| {
+                if (err == Error.PkFileIoError) {
+                    continue;
+                }
+                return err;
+            };
+        }
+        // TODO: should we fail if noting is found
+        mbed.sslConfCaChain(null);
+        try mbed.sslSetup();
+    }
+
+    pub fn cafile(mbed: *mbedTLS, path: []const u8) !void {
+        try mbed.x509CrtParseFile(path);
+        mbed.sslConfCaChain(null);
+        try mbed.sslSetup();
+    }
+
+    pub fn connect(mbed: *mbedTLS, host: [*]const u8, port: [*]const u8) !void {
+        try mbed.setHostname(host);
         try mbed.netConnect(host, port, mbedTLS.Proto.TCP);
-
-        try mbed.sslConfDefaults(.IS_CLIENT, .TCP, .DEFAULT);
-        mbed.sslConfAuthmode(.NONE);
-        mbed.sslConfRng(null); //use default
-        mbed.setConfDebug(null); // use default
-        mbed.sslConfCaChain(null); // use parsed CA file from earlier
-
-        try mbed.sslSetup(); // use parsed CA file from earlier
-        try mbed.setHostname("hello");
         mbed.sslSetBIO();
         try mbed.sslHandshake();
-
-        return mbed;
     }
 
-    pub fn initClientFd(allocator: Allocator, fd: c_int) !mbedTLS {
-        var mbed = try init(allocator);
+    pub fn connectFd(mbed: *mbedTLS, fd: c_int) !void {
         try mbed.setFd(fd);
-
-        try mbed.sslConfDefaults(.IS_CLIENT, .TCP, .DEFAULT);
-        mbed.sslConfAuthmode(.NONE);
-        mbed.sslConfRng(null); //use default
-        mbed.setConfDebug(null); // use default
-        mbed.sslConfCaChain(null); // use parsed CA file from earlier
-
-        try mbed.sslSetup(); // use parsed CA file from earlier
-        try mbed.setHostname("hello");
         mbed.sslSetBIO();
         try mbed.sslHandshake();
-
-        return mbed;
     }
 
-    pub fn x509CrtParseFile(self: *mbedTLS, cafile: []const u8) Error!void {
-        const rc = c.mbedtls_x509_crt_parse_file(self.ca_chain, &cafile[0]);
+    pub fn x509CrtParseFile(self: *mbedTLS, path: []const u8) Error!void {
+        const rc = c.mbedtls_x509_crt_parse_file(self.ca_chain, &path[0]);
         try checkError(rc);
     }
 
@@ -176,8 +190,8 @@ pub const mbedTLS = struct {
         try checkError(rc);
     }
 
-    pub fn setHostname(self: *mbedTLS, hostname: []const u8) Error!void {
-        const rc = c.mbedtls_ssl_set_hostname(self.ssl, hostname.ptr);
+    pub fn setHostname(self: *mbedTLS, hostname: [*]const u8) Error!void {
+        const rc = c.mbedtls_ssl_set_hostname(self.ssl, hostname);
         try checkError(rc);
     }
 

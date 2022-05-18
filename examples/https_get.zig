@@ -4,8 +4,14 @@ const mbedTLS = @import("mbedtls").mbedTLS;
 
 pub fn main() !void {
     var alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator).allocator();
-    var mbed = try mbedTLS.initClient(alloc, "www.google.com", "443");
+
+    var mbed = try mbedTLS.init(alloc);
     defer mbed.deinit();
+    try mbed.client();
+    //try mbed.insecure();
+    //try mbed.systemCA();
+    try mbed.cafile("/etc/ssl/cert.pem");
+    try mbed.connect("www.google.com", "443");
 
     const req = "GET / HTTP/1.1\r\nHost: www.google.com\r\nConnection: close\r\n\r\n";
     while ((try mbed.sslWrite(req)) <= 0) {}
