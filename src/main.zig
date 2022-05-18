@@ -11,6 +11,12 @@ const c = @cImport({
     @cInclude("mbedtls/error.h");
 });
 
+// References:
+// https://tls.mbed.org/api/ssl_8h.html
+// https://github.com/Mbed-TLS/mbedtls/blob/development/programs/ssl/mini_client.c
+// https://curl.se/docs/sslcerts.html
+// find where curl looks for cafile: 'curl -v https://www.google.com 2>&1 | grep -A 1 -B 1 CAfile:'
+
 pub const mbedTLS = struct {
     server_fd: *c.mbedtls_net_context,
     ssl_conf: *c.mbedtls_ssl_config,
@@ -41,16 +47,12 @@ pub const mbedTLS = struct {
             .entropy = entropy_ctx,
             .ssl = ssl_ctx,
             .ssl_conf = ssl_config,
-            //.ssl_conf = @ptrCast(*c.mbedtls_ssl_config, @alignCast(@alignOf(*c.mbedtls_ssl_config), ssl_config)),
             .drbg = drbg_ctx,
             .ca_chain = ca_chain,
             .entropyfn = c.mbedtls_entropy_func,
             .allocator = allocator,
         };
         try mbed.ctrDrbgSeed(null);
-        //try mbed.x509CrtParseFile("/etc/ssl/cert.pem");
-        // on ubuntu: etc/ssl/certs/ca-certificates.crt
-        // on macOS: "/etc/ssl/cert.pem"
         return mbed;
     }
 
@@ -91,7 +93,7 @@ pub const mbedTLS = struct {
         try mbed.sslSetup();
     }
 
-    pub fn connect(mbed: *mbedTLS, host: [*]const u8, port: [*]const u8) !void {
+    pub fn connect(mbed: *mbedTLS, host: []const u8, port: []const u8) !void {
         try mbed.setHostname(host);
         try mbed.netConnect(host, port, mbedTLS.Proto.TCP);
         mbed.sslSetBIO();
@@ -111,8 +113,8 @@ pub const mbedTLS = struct {
 
     pub const Proto = enum(u2) { TCP, UDP };
 
-    pub fn netConnect(self: *mbedTLS, host: [*]const u8, port: [*]const u8, proto: Proto) Error!void {
-        const rc = c.mbedtls_net_connect(self.server_fd, host, port, @enumToInt(proto));
+    pub fn netConnect(self: *mbedTLS, host: []const u8, port: []const u8, proto: Proto) Error!void {
+        const rc = c.mbedtls_net_connect(self.server_fd, &host[0], &port[0], @enumToInt(proto));
         try checkError(rc);
     }
 
@@ -190,8 +192,9 @@ pub const mbedTLS = struct {
         try checkError(rc);
     }
 
-    pub fn setHostname(self: *mbedTLS, hostname: [*]const u8) Error!void {
-        const rc = c.mbedtls_ssl_set_hostname(self.ssl, hostname);
+    // Set or reset the hostname to check against the received server certificate.
+    pub fn setHostname(self: *mbedTLS, hostname: []const u8) Error!void {
+        const rc = c.mbedtls_ssl_set_hostname(self.ssl, &hostname[0]);
         try checkError(rc);
     }
 
