@@ -1,45 +1,29 @@
 #!/bin/bash -e
-#
-# grep MBEDTLS_ERR_ /Users/ianic/code/zig/ninja/zig-mbedtls/zig-cache/o/e4954ff27820eeb23e89a87d2dbf4052/cimport.zig | \
-#      cut -d " " -f 3 | \
-#      gsed -E 's/MBEDTLS_ERR_([A-Z])/\1/g' | \
-#      gsed 's/[A-Z]/\L&/g' | \
-#      gsed -r 's/(^|_)([a-z])/\U\2/g'
 
+# Errors code generator
+# run it like:
+# $ ./errors.sh ./zig-cache/o/aaa396bc6232c78f0a7864ae7e4193c5/cimport.zig
+# where cimport.zig location is read from zig build when 'verbose_cimport = true;' is set
 
-source="/Users/ianic/code/zig/ninja/zig-mbedtls/zig-cache/o/e4954ff27820eeb23e89a87d2dbf4052/cimport.zig"
+source=$1
+
+# array of c constats:
 c_names=($( grep MBEDTLS_ERR_ $source | cut -d " " -f 3  ))
 
-# while IFS= read -rd ''; do
-#    targets+=("$REPLY")
-# done < <(grep MBEDTLS_ERR_ /Users/ianic/code/zig/ninja/zig-mbedtls/zig-cache/o/e4954ff27820eeb23e89a87d2dbf4052/cimport.zig)
-
-# check content of array
-#declare -p targets
-
+# convert c names to zig names
 zig_names=()
 for str in ${c_names[@]}; do
-  parts=(`echo $str | tr '_' ' '`)
-  # for p in ${parts[@]}; do
-  #      pp=${p:0:1}"$(tr '[:upper:]' '[:lower:]' <<< ${p:1})"
-  #      echo "  $p $pp"
-  # done
-
+  parts=(`echo $str | tr '_' ' '`) # split on _
   name=""
+  # CamelCase parts, except prefix
   for p in ${parts[@]:2}; do
        pp=${p:0:1}"$(tr '[:upper:]' '[:lower:]' <<< ${p:1})"
        name=$name${pp}
-       #echo "  $p $pp"
   done
-
-  #echo $str $name
   zig_names+=($name)
 done
 
-# for value in "${zig_names[@]}"; do
-#      echo $value
-# done
-
+# generate code
 echo ""
 echo "pub const Error = error{"
 echo "    Unknown,"

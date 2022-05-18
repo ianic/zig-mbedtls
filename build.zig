@@ -1,9 +1,6 @@
 const std = @import("std");
 
 fn add_mbedtls_deps(b: *std.build.LibExeObjStep) void {
-    //b.addIncludeDir("/Users/ianic/code/zig/tls-try/.gyro/zig-mbedtls-mattnite-github.com-a4f5357c/pkg/mbedtls/include");
-    //b.addLibPath("/Users/ianic/code/zig/zig-mbedtls/zig-out/lib");
-
     // macOS include paths if mbedtls is installed by homebrew on M1 macs
     // brew install mbedtls
     b.addIncludeDir("/opt/homebrew/include");
